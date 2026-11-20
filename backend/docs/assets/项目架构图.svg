@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2458D3"/>
+    </marker>
+    <style>
+      .bg { fill: #F6F8FB; }
+      .font { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif; }
+      .h1 { font-size: 26px; font-weight: 700; fill: #172033; }
+      .h2 { font-size: 16px; font-weight: 700; fill: #172033; }
+      .body { font-size: 13px; fill: #526079; }
+      .small { font-size: 12px; fill: #526079; }
+      .tag { font-size: 12px; font-weight: 600; fill: #2458D3; }
+      .removed { font-size: 12px; fill: #8A94A6; }
+      .box { fill: #FFFFFF; stroke: #DCE3EE; stroke-width: 1.5; }
+      .accent { fill: #FFFFFF; stroke: #2458D3; stroke-width: 2; }
+      .line { stroke: #2458D3; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="760" rx="16"/>
+
+  <text class="font h1" x="48" y="52">重构后系统架构</text>
+  <text class="font small" x="48" y="76">文字 AI 模拟面试 · DeepSeek 直连 · MySQL 唯一正式数据来源</text>
+
+  <rect class="accent" x="48" y="108" width="1184" height="112" rx="12"/>
+  <text class="font tag" x="72" y="136">Vue 3 前端（ai-meeting-vue）</text>
+  <text class="font body" x="72" y="162">登录/注册 · 工作台 · 新建面试 · 准备页 · 面试工作台 · 面试记录 · 复盘报告 · DeepSeek 普通聊天</text>
+  <text class="font small" x="72" y="190">Vite dev /api 代理 → 后端 8002；生产由反代转发 /api；SSE 使用 fetch 流 + 认证头</text>
+
+  <path class="line" d="M 640 220 L 640 262"/>
+
+  <rect class="box" x="48" y="262" width="1184" height="196" rx="12"/>
+  <text class="font tag" x="72" y="290">Spring Boot 3.4 / Java 17（server.port 8002）</text>
+
+  <rect class="box" x="72" y="308" width="264" height="126" rx="10"/>
+  <text class="font h2" x="90" y="334">鉴权与入口</text>
+  <text class="font small" x="90" y="358">Sa-Token 登录态 / 角色鉴权</text>
+  <text class="font small" x="90" y="378">归属校验 · 限流 · 参数校验</text>
+  <text class="font small" x="90" y="398">401 / 403 统一失败语义</text>
+  <text class="font small" x="90" y="418">/api/ai-meeting/v1/**</text>
+
+  <rect class="box" x="352" y="308" width="264" height="126" rx="10"/>
+  <text class="font h2" x="370" y="334">文字面试</text>
+  <text class="font small" x="370" y="358">PDF 本地解析（PDFBox）</text>
+  <text class="font small" x="370" y="378">出题 / 评分 / 有限追问</text>
+  <text class="font small" x="370" y="398">状态机 + LiteFlow 追问规则</text>
+  <text class="font small" x="370" y="418">复盘报告（不调模型）</text>
+
+  <rect class="box" x="632" y="308" width="264" height="126" rx="10"/>
+  <text class="font h2" x="650" y="334">幂等与并发</text>
+  <text class="font small" x="650" y="358">唯一约束 + attemptToken</text>
+  <text class="font small" x="650" y="378">version 乐观锁 / 条件更新</text>
+  <text class="font small" x="650" y="398">同会话串行 · 拒绝迟到写入</text>
+  <text class="font small" x="650" y="418">短事务不持有模型调用</text>
+
+  <rect class="box" x="912" y="308" width="296" height="126" rx="10"/>
+  <text class="font h2" x="930" y="334">普通聊天 + 大模型直连</text>
+  <text class="font small" x="930" y="358">WebFlux Flux + SSE 流式输出</text>
+  <text class="font small" x="930" y="378">LlmChatClient（OpenAI 协议）</text>
+  <text class="font small" x="930" y="398">版本化提示词 prompts/*.v1.md</text>
+  <text class="font small" x="930" y="418">凭据仅后端 ai-meeting.llm.*</text>
+
+  <path class="line" d="M 380 458 L 380 500"/>
+  <path class="line" d="M 900 458 L 900 500"/>
+
+  <rect class="accent" x="48" y="500" width="720" height="150" rx="12"/>
+  <text class="font tag" x="72" y="528">MySQL 8 · 唯一正式业务数据来源</text>
+  <text class="font body" x="72" y="554">interview_session / interview_material / interview_question_item /</text>
+  <text class="font body" x="72" y="576">interview_answer_submission / ai_conversation / ai_message</text>
+  <text class="font small" x="72" y="602">以及 interview_record、t_user、admin_permission、ai_properties</text>
+  <text class="font small" x="72" y="626">会话、材料、题目、回答提交、聊天消息、报告全部落库；刷新/断线从正式记录恢复</text>
+
+  <rect class="box" x="792" y="500" width="440" height="150" rx="12"/>
+  <text class="font tag" x="816" y="528">Redis + Redisson（可丢弃状态）</text>
+  <text class="font small" x="816" y="554">会话锁、接口限流、登录态共享</text>
+  <text class="font small" x="816" y="578">不再保存权威题序 / 累计分 / 问答历史</text>
+  <text class="font small" x="816" y="602">不再作为模型结果缓存或快照介质</text>
+  <text class="font small" x="816" y="626">清空后可依 MySQL 正式记录恢复</text>
+
+  <rect class="box" x="48" y="672" width="1184" height="60" rx="12"/>
+  <text class="font tag" x="72" y="698">已退役</text>
+  <text class="font removed" x="146" y="698">MongoDB（含 @Document 实体 / 快照 / 归档） · 讯飞语音与 ASR / TTS · 星辰 Agent 工作流 · 神态分析 · WebSocket 端点 · 通用 Agent CRUD · single-flight 与模型结果缓存</text>
+  <text class="font small" x="72" y="720">历史架构图见 docs/legacy/assets/项目架构图-重构前.svg；旧数据与旧卷保留备份，不自动销毁。</text>
+</svg>

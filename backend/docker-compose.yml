@@ -1,0 +1,97 @@
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    container_name: ai-meeting-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mainshi_agent}
+    ports:
+      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ai-meeting-mysql-data:/var/lib/mysql
+      # 01/02 为 DDL：01 建 4 张仍在使用的基础表（admin_permission/ai_properties/
+      # interview_record/t_user），02 建重构后 6 张核心表（interview_session/material/
+      # question_item/answer_submission、ai_conversation/ai_message）。
+      # 03~05 为对应的种子数据，必须排在 DDL 之后。
+      # 注意：旧全量 table.sql 含已退役的 agent_*/ai_message_media 表，仅作历史归档，不用于新库初始化。
+      - ./admin/src/main/resources/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./admin/src/main/resources/sql/interview_core.sql:/docker-entrypoint-initdb.d/02-interview-core.sql:ro
+      - ./admin/src/main/resources/sql/admin_permission.sql:/docker-entrypoint-initdb.d/03-admin_permission.sql:ro
+      - ./admin/src/main/resources/sql/ai_properties.sql:/docker-entrypoint-initdb.d/04-ai_properties.sql:ro
+      - ./admin/src/main/resources/sql/t_user.sql:/docker-entrypoint-initdb.d/05-t_user.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_PASSWORD:-123456}"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.2}
+    container_name: ai-meeting-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ai-meeting-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ${BACKEND_IMAGE:-ai-meeting-backend:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDER_IMAGE: ${BUILDER_IMAGE:-maven:3.9.11-eclipse-temurin-17}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-eclipse-temurin:17-jre-jammy}
+    container_name: ai-meeting-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mainshi_agent}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-123456}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # 模型凭据只经环境变量注入，不写入镜像或配置文件。
+      # 复制 .env.example 为 .env 并填入 LLM_API_KEY 后即可一键启动。
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      # 视觉模型：地址/模型已预置，只填 VISION_API_KEY 即可启用。
+      VISION_BASE_URL: ${VISION_BASE_URL:-https://cn-beijing.maas.qianwenapi.com/compatible-mode/v1}
+      VISION_MODEL: ${VISION_MODEL:-qwen3.8-omni-flash}
+      VISION_API_KEY: ${VISION_API_KEY:-}
+      AI_MEETING_STORAGE_BASE_DIR: /app/data
+      AI_MEETING_MULTIPART_TEMP_DIR: /app/data/temp/upload
+      AI_MEETING_LOG_DIR: /app/logs
+    ports:
+      - "8002:8002"
+    volumes:
+      - ai-meeting-backend-data:/app/data
+      - ai-meeting-backend-logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8002/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  ai-meeting-mysql-data:
+  ai-meeting-redis-data:
+  ai-meeting-backend-data:
+  ai-meeting-backend-logs:

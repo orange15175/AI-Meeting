@@ -1,0 +1,30 @@
+:root {
+  /* 设计 token（见重构计划 §10.3） */
+  --color-bg: #f6f8fb;
+  --color-surface: #ffffff;
+  --color-text: #172033;
+  --color-text-secondary: #526079;
+  --color-primary: #2458d3;
+  --color-primary-hover: #3a6ce0;
+  --color-border: #dce3ee;
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+
+  /* Element Plus 主题对齐 */
+  --el-color-primary: #2458d3;
+  --el-border-radius-base: 8px;
+
+  /* 间距 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+}

@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# vue-tsc -b / vite 生成的编译产物与增量缓存，不纳入版本控制
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo
+coverage

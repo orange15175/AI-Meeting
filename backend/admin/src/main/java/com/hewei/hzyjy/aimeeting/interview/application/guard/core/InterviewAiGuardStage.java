@@ -1,0 +1,14 @@
+package com.hewei.hzyjy.aimeeting.interview.application.guard.core;
+
+/**
+ * Interview AI guard stage names.
+ */
+public final class InterviewAiGuardStage {
+
+    public static final String INTERVIEW_EVALUATION = "interview-evaluation";
+    public static final String INTERVIEW_FOLLOWUP = "interview-followup";
+    public static final String INTERVIEW_EXTRACTION = "interview-extraction";
+
+    private InterviewAiGuardStage() {
+    }
+}
