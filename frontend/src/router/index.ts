@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import { getToken } from "@/api/http";
 
+// 【面试页面路线】/interview/new → /interview/room/:sessionId → /interview/report/:sessionId。
+// prepare 是状态恢复入口，records 是历史列表；接口调用顺序见 src/api/interview.ts。
 const routes: RouteRecordRaw[] = [
   {
     path: "/auth",

@@ -11,6 +11,8 @@ const sessionId = String(route.params.sessionId ?? "");
 const loading = ref(true);
 const state = ref<InterviewSessionRestore | null>(null);
 
+// 【恢复分支】准备页只读取一次已保存状态，不负责异步任务轮询。
+// 新建面试的正常路径由 NewInterviewView 同步出题后直接进入房间。
 onMounted(async () => {
   try {
     state.value = await interviewApi.restore(sessionId);

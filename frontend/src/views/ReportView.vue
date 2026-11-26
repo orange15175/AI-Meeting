@@ -13,6 +13,7 @@ const sessionId = String(route.params.sessionId ?? "");
 const loading = ref(true);
 const record = ref<InterviewRecord | null>(null);
 
+// 【面试主线 6/6】读取服务端报告，展示评分、逐题回顾与 JD 考察情况；页面不重新调用评分模型。
 const load = async () => {
   loading.value = true;
   try {
@@ -26,6 +27,7 @@ const load = async () => {
 
 onMounted(load);
 
+// 展示数据分组：把同一份服务端报告拆成雷达维度、回放、复盘建议和岗位考察信息；这里没有额外评分请求。
 const radar = computed(() => record.value?.radarChart ?? null);
 const dimensions = computed(() => record.value?.radarDimensions ?? []);
 const playback = computed(() => record.value?.playbackItems ?? []);
@@ -33,10 +35,12 @@ const review = computed(() => record.value?.reviewFeedback ?? null);
 const jdSummary = computed(() => record.value?.jdSummary ?? null);
 const jdCoverage = computed(() => record.value?.jdCoverage ?? []);
 
+// 已答主问题数量只统计有回答且非追问的回放项，与包含追问的报告总题量不是同一口径。
 const answeredCount = computed(
   () => playback.value.filter((item) => item.answerContent && !item.isFollowUp).length,
 );
 
+// 缺失分数保留 null，模板用横线表示；避免把“尚未评分”误展示成真实的 0 分。
 const scoreCards = computed(() => [
   { label: "面试表现", value: radar.value?.interviewPerformance ?? null },
   { label: "简历评估", value: radar.value?.resumeScore ?? null },
