@@ -59,6 +59,18 @@ public class InterviewAnswerSubmission {
     @TableField("attempt_count")
     private Integer attemptCount;
 
+    /**
+     * 当前尝试最后一次成功心跳（数据库时间）。与 deadline_at 一起表达执行权租约。
+     */
+    @TableField("heartbeat_at")
+    private Date heartbeatAt;
+
+    /**
+     * 当前尝试的固定截止时间（数据库时间）。到点后本次尝试不能再续期，也不能提交。
+     */
+    @TableField("deadline_at")
+    private Date deadlineAt;
+
     @TableField("score")
     private Integer score;
 

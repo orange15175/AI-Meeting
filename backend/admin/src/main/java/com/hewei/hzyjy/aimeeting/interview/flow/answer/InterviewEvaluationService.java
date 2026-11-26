@@ -42,6 +42,7 @@ public class InterviewEvaluationService {
     private final InterviewResponseParser interviewResponseParser;
     private final PromptLibrary promptLibrary;
 
+    // 评分用例只负责生成、解析评分结果；是否追问由规则层决定，评分和游标的持久化由提交服务负责。
     public Map<String, Object> evaluateAnswer(
             String sessionId,
             String requestId,
@@ -56,6 +57,7 @@ public class InterviewEvaluationService {
             return null;
         }
 
+        // 第 1 段：加载评分提示词，填入当前题、回答和内部考察点，再分别加入限长的简历背景与 JD 要求。
         PromptTemplate prompt = promptLibrary.get(PromptLibrary.INTERVIEW_ANSWER_EVALUATION);
         Map<String, Object> variables = new LinkedHashMap<>();
         variables.put("question", questionContent);
@@ -63,6 +65,7 @@ public class InterviewEvaluationService {
         variables.put("scoringPoints", scoringPoints == null || scoringPoints.isEmpty()
                 ? "（未提供，请按岗位通用标准评价）"
                 : String.join("；", scoringPoints));
+        // 【关键节点：评分依据】简历提供经历、JD 提供岗位目标，分别限长注入；当前题的考察点来自后端题库。
         variables.put("resumeContext", resumeContextReader.readAsText(sessionId, 1500));
         variables.put("jobContext", jobContextReader.readAsText(sessionId, 1000));
 
@@ -90,6 +93,7 @@ public class InterviewEvaluationService {
             return null;
         }
 
+        // 第 2 段：模型返回文字后还要解析 JSON；无法解析时返回 null，由 Pipeline 记录失败并保留当前题。
         Map<String, Object> parsed = interviewResponseParser.parseEvaluationResult(aiResponse);
         if (parsed == null || parsed.isEmpty()) {
             log.warn("Evaluation response is not valid JSON, sessionId={}, requestId={}, prompt={}, length={}",
@@ -97,6 +101,7 @@ public class InterviewEvaluationService {
             return null;
         }
 
+        // 第 3 段：归一化分数、布尔值和遗漏点，并补非评分字段默认值；不伪造缺失分数，最终由 Pipeline 拒绝无分结果。
         Map<String, Object> normalized = normalize(parsed);
         fillDefaults(normalized);
         log.info("Evaluation finished, sessionId={}, questionNumber={}, prompt={}, score={}, costMs={}",
@@ -108,6 +113,7 @@ public class InterviewEvaluationService {
         return normalized;
     }
 
+    // 将模型输出的弱类型字段转换成业务可用类型；无效 score 会移除，而不是默认为 0 分。
     private Map<String, Object> normalize(Map<String, Object> raw) {
         Map<String, Object> normalized = new LinkedHashMap<>(raw);
 
@@ -140,6 +146,7 @@ public class InterviewEvaluationService {
         return normalized;
     }
 
+    // 补齐展示和追问字段；模型未给追问标记时，从逻辑问题、遗漏点或追问提示推断建议，仍需后续规则审核。
     private void fillDefaults(Map<String, Object> result) {
         if (!result.containsKey(KEY_MISSING_POINTS)) {
             result.put(KEY_MISSING_POINTS, Collections.emptyList());

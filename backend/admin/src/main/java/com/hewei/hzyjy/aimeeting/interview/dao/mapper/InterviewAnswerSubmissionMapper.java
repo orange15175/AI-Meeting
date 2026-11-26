@@ -28,6 +28,7 @@ public interface InterviewAnswerSubmissionMapper extends BaseMapper<InterviewAns
             + "s.question_no AS question_no, s.request_id AS request_id, s.input_hash AS input_hash, "
             + "s.answer_content AS answer_content, s.skipped AS skipped, s.status AS status, s.stage AS stage, "
             + "s.attempt_token AS attempt_token, s.attempt_count AS attempt_count, s.score AS score, "
+            + "s.heartbeat_at AS heartbeat_at, s.deadline_at AS deadline_at, "
             + "s.feedback AS feedback, s.missing_points AS missing_points, s.response_json AS response_json, "
             + "s.error_message AS error_message, s.finished AS finished, s.duration_ms AS duration_ms, "
             + "s.create_time AS create_time, s.update_time AS update_time, s.del_flag AS del_flag "

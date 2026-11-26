@@ -4,6 +4,9 @@ import com.hewei.hzyjy.aimeeting.interview.application.rule.InterviewFollowUpRul
 import com.yomahub.liteflow.annotation.LiteflowComponent;
 import com.yomahub.liteflow.core.NodeComponent;
 
+/**
+ * 【关键节点：规则 4】未被前置守卫终止时，采纳评分模型的追问建议。
+ */
 @LiteflowComponent("aiSuggestionJudge")
 public class AiSuggestionJudgeNode extends NodeComponent {
 

@@ -35,6 +35,7 @@ public class InterviewFollowUpService {
     private final InterviewResponseParser interviewResponseParser;
     private final PromptLibrary promptLibrary;
 
+    // 追问文案用例：检查上限 → 生成候选题号 → 调模型 → 使用评分提示兜底；返回结果本身不会插入题库。
     public FollowUpQuestionResult generateFollowUpQuestion(
             String sessionId,
             String requestId,
@@ -47,10 +48,12 @@ public class InterviewFollowUpService {
 
         int safeCurrentFollowUpCount = Math.max(0, currentFollowUpCount == null ? 0 : currentFollowUpCount);
         int safeMaxFollowUp = maxFollowUp == null || maxFollowUp <= 0 ? 2 : maxFollowUp;
+        // 【关键节点：追问上限】生成前再次检查轮数；后续状态机还会按会话上限检查实际题号推进。
         if (safeCurrentFollowUpCount >= safeMaxFollowUp) {
             return FollowUpQuestionResult.empty();
         }
 
+        // 题号只用于表达本主问题的第几次追问，例如 3-F1；实际下一题题号还要经过状态机规划。
         String mainQuestionNumber = resolveMainQuestionNumber(currentQuestionNumber);
         String questionNumber = buildFollowUpQuestionNumber(mainQuestionNumber, safeCurrentFollowUpCount + 1);
         if (StrUtil.isBlank(questionNumber)) {
@@ -67,6 +70,7 @@ public class InterviewFollowUpService {
             log.warn("Follow-up generation failed, sessionId={}", sessionId, ex);
         }
 
+        // 【关键节点：追问降级】生成模型不可用时尝试评分模型给出的追问提示；两者都为空则跳过追问，保留评分。
         String questionContent = StrUtil.isNotBlank(generatedQuestion)
                 ? generatedQuestion
                 : sanitizeFollowUpQuestion(fallbackFollowUpQuestion);
@@ -88,6 +92,7 @@ public class InterviewFollowUpService {
             return null;
         }
 
+        // 构造追问提示词：关注当前回答和剩余追问次数，简历背景与岗位要求分别限长注入。
         PromptTemplate prompt = promptLibrary.get(PromptLibrary.INTERVIEW_FOLLOW_UP);
         Map<String, Object> variables = new LinkedHashMap<>();
         variables.put("question", currentQuestion);
@@ -117,6 +122,7 @@ public class InterviewFollowUpService {
                     sessionId, requestId, prompt.versionLabel());
             return null;
         }
+        // 模型的 end_interview 在这里仅表示本次不产出追问；不直接结束整场面试，外层仍可能使用备选追问。
         if (interviewResponseParser.asBoolean(result.get(KEY_END_INTERVIEW))) {
             log.info("Follow-up decided to end, sessionId={}, requestId={}", sessionId, requestId);
             return null;
@@ -124,6 +130,7 @@ public class InterviewFollowUpService {
         return sanitizeFollowUpQuestion(interviewResponseParser.asString(result.get(KEY_ASK_TO_USER)));
     }
 
+    // 清理 none/null 等占位符，补问号并限制题干长度；这是文案规范化，不是对事实或难度的验证。
     private String sanitizeFollowUpQuestion(String question) {
         if (StrUtil.isBlank(question)) {
             return null;

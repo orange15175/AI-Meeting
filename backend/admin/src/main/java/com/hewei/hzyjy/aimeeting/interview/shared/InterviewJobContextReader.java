@@ -29,11 +29,6 @@ public class InterviewJobContextReader {
 
     private final InterviewMaterialStore materialStore;
 
-    public boolean hasJd(String sessionId) {
-        InterviewMaterial material = materialStore.findBySession(sessionId);
-        return material != null && StrUtil.isNotBlank(material.getJdSource());
-    }
-
     public Map<String, Object> readContext(String sessionId) {
         InterviewMaterial material = materialStore.findBySession(sessionId);
         if (material == null || StrUtil.isBlank(material.getJdContext())) {

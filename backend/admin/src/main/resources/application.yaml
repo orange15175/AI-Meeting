@@ -63,7 +63,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus 供外部抓取；health 供容器探针。其余端点仍保持关闭。
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
@@ -71,6 +72,21 @@ management:
   health:
     defaults:
       enabled: true
+  metrics:
+    distribution:
+      # 模型调用延迟：默认只导出 count/sum/max，没有分桶就算不出 histogram_quantile。
+      # ai.call.latency.ms 是 AiCallGuardService 里 timer 的点分形式（指标名为 ai_call_latency_ms）。
+      percentiles-histogram:
+        ai.call.latency.ms: true
+      # 同时保留客户端分位数，便于单实例直接看 P50/P95/P99，不依赖 bucket 聚合。
+      percentiles:
+        ai.call.latency.ms: 0.5, 0.95, 0.99
+      # 默认分桶上限是 30s，覆盖不到出题阶段 60s 的超时预算，
+      # 会让长尾全部堆进 +Inf 桶、P99 失真。这里按最长超时留一倍余量。
+      minimum-expected-value:
+        ai.call.latency.ms: 100ms
+      maximum-expected-value:
+        ai.call.latency.ms: 90s
 
 logging:
   file:
@@ -138,9 +154,11 @@ ai-meeting:
   # 视觉模型：图片简历 / 扫描版 PDF 的识别。走 OpenAI 兼容多模态协议。
   # 密钥通过 VISION_API_KEY 注入，留空时应用照常启动，仅视觉功能不可用。
   vision:
-    base-url: ${VISION_BASE_URL:https://cn-beijing.maas.qianwenapi.com/compatible-mode/v1}
+    # 千问 OpenAI 兼容接口。旧的 cn-beijing.maas.qianwenapi.com 域名目前无法解析；
+    # 如使用其他区域或网关，通过 VISION_BASE_URL 覆盖。
+    base-url: ${VISION_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
     model: ${VISION_MODEL:qwen3.8-omni-flash}
-    api-key: ${VISION_API_KEY:sk-ws-H.YPYXXPY.5ZIO.MEUCIQC-Rj0zhRdRpXXLvwqLeyfoK9J9-rv7fj1Eui5e0KUAAQIgaBVOoZpLVMBfg87FKmgIb6NvOuq9TKcWXG7rI_mFqZg}
+    api-key: ${VISION_API_KEY:}
     temperature: ${VISION_TEMPERATURE:0.1}
     max-tokens: ${VISION_MAX_TOKENS:4096}
     timeout-seconds: ${VISION_TIMEOUT_SECONDS:120}
@@ -178,7 +196,9 @@ ai-meeting:
         retry-count: 1
         retry-wait-millis: 100
       interview-extraction:
-        timeout-millis: 60000
+        # 单次出题调用（含一次修复）的最坏耗时 = 2 × timeout + 解析。
+        # 90s 对应 20 题更大的输出预算；调大这里必须同步调大重操作锁租期。
+        timeout-millis: ${INTERVIEW_EXTRACTION_TIMEOUT_MILLIS:90000}
         max-concurrent-calls: 8
         retry-count: 0
         retry-wait-millis: 0
@@ -187,12 +207,30 @@ ai-meeting:
   # P4 起 Mongo 快照与 Redis 会话同步一并退役，redis-session / turn-repair 段同步移除。
   interview:
     extraction:
-      # 单份简历生成的题目数量
+      # 未在请求里指定 questionCount 时的默认题量；请求参数优先于这里。
       question-count: ${INTERVIEW_QUESTION_COUNT:10}
+      # 允许的题量区间：下限保证一场面试的完整性，上限受单次输出 token 与重操作锁租期约束。
+      # 上调上限前先确认 max-tokens-ceiling 仍能容下题目对象（每题约 400 tokens）。
+      question-count-min: ${INTERVIEW_QUESTION_COUNT_MIN:5}
+      question-count-max: ${INTERVIEW_QUESTION_COUNT_MAX:20}
+      # 输出预算按题量线性放大：meta 预留 2000 + 每题 400，再由 floor/ceiling 夹住。
+      # 10 题约 6000，20 题会顶到 ceiling——再大就需要精简字段或分批生成，而不是继续加大上限。
+      max-tokens-per-question: ${INTERVIEW_EXTRACTION_TOKENS_PER_QUESTION:400}
+      max-tokens-floor: ${INTERVIEW_EXTRACTION_TOKENS_FLOOR:4096}
+      max-tokens-ceiling: ${INTERVIEW_EXTRACTION_TOKENS_CEILING:8192}
     answer-guard:
-      lock-expire-seconds: -1
-      lock-watchdog-enabled: true
-      processing-expire-seconds: 120
-      processing-long-tail-expire-seconds: 300
-      replay-expire-hours: 24
+      # 答题锁：固定租期，不启用看门狗。锁只串行化入口，执行权由提交行租约表达。
+      # 线程卡死时锁必须能自然过期，否则接管的请求永远进不了临界区。
+      lock-expire-seconds: 120
+      lock-watchdog-enabled: false
       lock-wait-millis: 0
+      # 重型 AI 锁（材料解析/出题）：覆盖 "材料 OCR 120s + 首次出题 90s + 修复 90s" = 300s。
+      # 两次 OCR 叠加的极端情况仍可能超出，但此时晚到的写入会被会话 version CAS 拒绝，
+      # 锁过期只意味着可能重复消耗一次模型调用，不会覆盖已有题库。调大出题超时前先核对这里。
+      heavy-lock-expire-seconds: 300
+      # 执行权租约：每 20s 刷一次心跳，60s（3 倍）未刷到视为失联，180s 为单次尝试硬上限。
+      heartbeat-interval-seconds: 20
+      heartbeat-lease-seconds: 60
+      attempt-deadline-seconds: 180
+      # 迁移前产生的旧行（两列为 NULL）仍按 update_time 判定，兼容历史数据。
+      legacy-processing-timeout-seconds: 300

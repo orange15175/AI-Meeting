@@ -40,67 +40,6 @@ public class InterviewResponseParser {
         return matched != null ? matched : root;
     }
 
-    public String extractWorkflowErrorMessage(String aiResponseStr) {
-        Map<String, Object> root = tryParseObject(aiResponseStr);
-        if (root == null || root.isEmpty()) {
-            return null;
-        }
-
-        Integer responseCode = parseInteger(root.get("code"));
-        if (responseCode == null || responseCode == 0) {
-            return null;
-        }
-
-        String message = asString(root.get("message"));
-        if (StrUtil.isBlank(message)) {
-            return "workflow response code=" + responseCode;
-        }
-        return "workflow response code=" + responseCode + ", message=" + message;
-    }
-
-    public String extractContentFromResponse(Map<String, Object> responseMap) {
-        try {
-            if (responseMap == null || !responseMap.containsKey("choices")) {
-                return null;
-            }
-
-            Object choicesObj = responseMap.get("choices");
-            if (!(choicesObj instanceof List)) {
-                return null;
-            }
-
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> choices = (List<Map<String, Object>>) choicesObj;
-            if (choices.isEmpty()) {
-                return null;
-            }
-
-            Map<String, Object> firstChoice = choices.get(0);
-            if (firstChoice == null) {
-                return null;
-            }
-
-            if (firstChoice.containsKey("delta")) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> delta = (Map<String, Object>) firstChoice.get("delta");
-                if (delta != null && delta.containsKey("content")) {
-                    return String.valueOf(delta.get("content"));
-                }
-            }
-            if (firstChoice.containsKey("message")) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> message = (Map<String, Object>) firstChoice.get("message");
-                if (message != null && message.containsKey("content")) {
-                    return String.valueOf(message.get("content"));
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            log.error("Failed to extract content: {}", e.getMessage());
-            return null;
-        }
-    }
-
     public String extractContentFromInterviewResponse(String aiResponse) {
         try {
             JSONObject jsonObject = JSON.parseObject(aiResponse);

@@ -40,6 +40,9 @@ public class InterviewRecordController {
         return Results.success(interviewRecordService.pageInterviewRecords(currentUser.getUserId(), requestParam));
     }
 
+    /**
+     * 【面试主线 6/6】按登录用户与 sessionId 获取报告，供 ReportView 展示逐题回顾和岗位考察。
+     */
     @GetMapping("/interview/record/{sessionId}")
     public Result<InterviewRecordRespDTO> getInterviewRecordBySessionId(
             @PathVariable String sessionId,

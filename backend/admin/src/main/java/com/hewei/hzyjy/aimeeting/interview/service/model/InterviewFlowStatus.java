@@ -7,6 +7,7 @@ public enum InterviewFlowStatus {
 
     INIT,
     ASKING,
+    // 声明的评分阶段；当前流水线处理中主要使用提交行的 PROCESSING，不保证会话持久化到此枚举值。
     EVALUATING,
     FOLLOW_UP,
     COMPLETED;

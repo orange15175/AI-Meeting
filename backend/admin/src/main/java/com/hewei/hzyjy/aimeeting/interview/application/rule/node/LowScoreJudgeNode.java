@@ -4,6 +4,9 @@ import com.hewei.hzyjy.aimeeting.interview.application.rule.InterviewFollowUpRul
 import com.yomahub.liteflow.annotation.LiteflowComponent;
 import com.yomahub.liteflow.core.NodeComponent;
 
+/**
+ * 【关键节点：规则 5】分数低于配置阈值时补充追问触发条件；不在此重新评分。
+ */
 @LiteflowComponent("lowScoreJudge")
 public class LowScoreJudgeNode extends NodeComponent {
 

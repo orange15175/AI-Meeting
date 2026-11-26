@@ -42,8 +42,12 @@ public class InterviewSessionController {
 
     private final InterviewSessionFacade interviewSessionFacade;
 
+    /**
+     * 【面试主线 1/6】创建面试会话。用户身份取自登录上下文，业务层生成会话 ID 并绑定归属。
+     */
     @PostMapping("/sessions")
     public Result<InterviewSessionCreateRespDTO> createSession(@CurrentUser UserContext currentUser) {
+        // 请求体无需传 userId；@CurrentUser 从登录身份提供用户。返回 DTO 的 sessionId/status 对应前端 CreateResult 类型。
         return Results.success(interviewSessionFacade.createSession(currentUser.getUserId()));
     }
 
@@ -71,6 +75,9 @@ public class InterviewSessionController {
                 interviewSessionFacade.pageHistoryMessages(sessionId, current, size, currentUser.getUserId()));
     }
 
+    /**
+     * 【面试主线 5/6】统一收口入口，供正常答完和提前结束复用；生成报告并结束会话。
+     */
     @PutMapping("/sessions/{sessionId}/finish")
     public Result<Void> finishSession(
             @PathVariable String sessionId,
@@ -87,17 +94,28 @@ public class InterviewSessionController {
         return Results.success();
     }
 
+    /**
+     * 【面试主线 2/6】上传简历与可选 JD，解析材料并生成本场题目。
+     * 简历是经历依据，JD 是岗位要求；后端独立校验两种 JD 输入互斥。
+     * 题量与难度是可选出题选项，缺省时走配置默认值与「智能匹配」。
+     */
     @PostMapping("/sessions/{sessionId}/interview-questions")
     public Result<InterviewQuestionRespDTO> extractInterviewQuestions(
             @PathVariable String sessionId,
             @RequestParam("resumePdf") MultipartFile resumePdf,
             @RequestParam(value = "jdText", required = false) String jdText,
             @RequestParam(value = "jdFile", required = false) MultipartFile jdFile,
+            @RequestParam(value = "questionCount", required = false) String questionCount,
+            @RequestParam(value = "difficulty", required = false) String difficulty,
             @CurrentUser UserContext currentUser) {
+        // HTTP 入参来源分开：sessionId 来自 URL，简历/JD/选项来自 multipart，用户信息来自登录上下文。
+        // Results.success 只是接口外层包装，出题业务是否成功还要看内部响应的 isSuccess。
         return Results.success(interviewSessionFacade.extractInterviewQuestions(
-                sessionId, resumePdf, jdText, jdFile, currentUser.getUserId(), currentUser.getUsername()));
+                sessionId, resumePdf, jdText, jdFile, questionCount, difficulty,
+                currentUser.getUserId(), currentUser.getUsername()));
     }
 
+    // 表单兼容入口：组装与 JSON 入口相同的答题 DTO；当前 Vue 主流程使用下面的 answer-json。
     @PostMapping("/sessions/{sessionId}/interview/answer")
     public Result<InterviewAnswerRespDTO> answerInterviewQuestion(
             @PathVariable String sessionId,
@@ -117,6 +135,10 @@ public class InterviewSessionController {
                 interviewSessionFacade.answerInterviewQuestion(sessionId, requestParam, currentUser.getUserId()));
     }
 
+    /**
+     * 【面试主线 4/6】Vue 当前使用的答题入口：评分、追问决策、生成下一题并提交进度。
+     * requestId 标识本次提交，题号及回答摘要参与后端重复提交判定。
+     */
     @PostMapping(value = "/sessions/{sessionId}/interview/answer-json", consumes = "application/json")
     public Result<InterviewAnswerRespDTO> answerInterviewQuestionJson(
             @PathVariable String sessionId,
@@ -133,6 +155,9 @@ public class InterviewSessionController {
         return Results.success(interviewSessionFacade.getNextQuestion(sessionId, currentUser.getUserId()));
     }
 
+    /**
+     * 【面试主线 3/6】读取数据库游标对应的当前题；刷新页面不等于提交回答或切换下一题。
+     */
     @GetMapping("/sessions/{sessionId}/current-question")
     public Result<InterviewAnswerRespDTO> getCurrentQuestion(
             @PathVariable String sessionId,
@@ -140,6 +165,9 @@ public class InterviewSessionController {
         return Results.success(interviewSessionFacade.getCurrentQuestion(sessionId, currentUser.getUserId()));
     }
 
+    /**
+     * 【恢复分支】读取会话状态与材料摘要，判断能否继续；恢复接口本身不重新出题。
+     */
     @GetMapping("/sessions/{sessionId}/restore")
     public Result<InterviewSessionRestoreRespDTO> restoreInterviewSession(
             @PathVariable String sessionId,

@@ -77,6 +77,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
     private final InterviewJobContextReader jobContextReader;
 
     @Override
+    // 【关键节点：报告快照】校验归属，聚合会话/材料/题库/提交，再插入或更新报告；这里不调用模型，也不主动结束会话。
     public void saveInterviewRecord(String sessionId, Long userId, InterviewRecordSaveReqDTO requestParam) {
         if (StrUtil.isBlank(sessionId)) {
             throw new ClientException(InterviewErrorCodeEnum.SESSION_ID_EMPTY);
@@ -89,6 +90,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
 
         InterviewRecordDO record = findRecord(userId, sessionId);
 
+        // 第 1 段：计算报告基础字段和逐题记录。自动收口传入空请求，分数主要来自成功主问题提交的平均值。
         Integer totalScore = resolveInterviewScore(sessionId, safeRequest, record);
         String suggestions = resolveInterviewSuggestions(safeRequest, material);
         Integer resumeScore = material == null ? null : material.getResumeScore();
@@ -107,6 +109,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
             record.setDelFlag(0);
         }
 
+        // 第 2 段：优先沿用报告开始时间，否则回退会话开始/创建时间；时长按本次保存时间计算。
         Date sessionStartTime = session.getStartTime() != null
                 ? session.getStartTime()
                 : (session.getCreateTime() != null ? session.getCreateTime() : now);
@@ -127,11 +130,13 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
             record.setEndTime(now);
         }
         record.setDurationSeconds(durationSeconds);
+        // 第 3 段：把本次回合、雷达和复盘建议存为 JSON 快照，便于之后读取报告时优先还原。
         record.setSessionSnapshotJson(buildSessionSnapshotJson(
                 session, material, resumeScore, totalScore, questionCount,
                 interviewDirection, status, suggestions, turns, radarChart));
         record.setUpdateTime(now);
 
+        // 第 4 段：不存在就插入，已存在就更新；并发首次插入触发唯一键时，重新定位已有报告转为更新。
         if (record.getId() == null) {
             try {
                 baseMapper.insert(record);
@@ -156,6 +161,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
     }
 
     @Override
+    // 记录列表只查询当前用户未删除报告，按条件筛选和创建时间倒序分页；不在列表里重新出题或评分。
     public IPage<InterviewRecordRespDTO> pageInterviewRecords(Long userId, InterviewRecordPageReqDTO requestParam) {
         validateUserId(userId);
 
@@ -196,6 +202,10 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return resultPage;
     }
 
+    /**
+     * 【面试主线 6/6】报告页按用户和会话查询报告，补充逐题回顾、雷达与岗位考察字段。
+     * 报告缺失时会尝试从现有数据库记录生成；这条补建分支不等于显式结束面试。
+     */
     @Override
     public InterviewRecordRespDTO getBySessionId(String sessionId, Long userId) {
         if (StrUtil.isBlank(sessionId)) {
@@ -217,6 +227,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
             return null;
         }
 
+        // 复制报告基础字段后，补齐雷达、逐题回顾、复盘建议及 JD 考察信息；快照缺字段时可用当前数据库补齐。
         InterviewRecordRespDTO respDTO = new InterviewRecordRespDTO();
         BeanUtils.copyProperties(record, respDTO);
         if (StrUtil.isNotBlank(record.getInterviewSuggestions())) {
@@ -226,6 +237,10 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return respDTO;
     }
 
+    /**
+     * 【面试主线 5/6】正常答完或提前结束的统一收口：finalize 锁 → 保存报告 → 标记结束 → 再补终态报告。
+     * FromRedis 是保留的历史方法名，实际数据来自 MySQL；这里采用锁和重试，不是包住整个收口的单一数据库事务。
+     */
     @Override
     public void saveInterviewRecordFromRedis(String sessionId, Long userId) {
         if (StrUtil.isBlank(sessionId)) {
@@ -240,12 +255,14 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
                 Metrics.counter("finalize_lock_contention_total").increment();
                 throw new ClientException("finalize is processing, please retry");
             }
+            // 【关键节点：收口重试】最多尝试 3 次，每次重新检查归属和状态；不是把整个循环放在一个数据库事务中。
             for (int attempt = 1; attempt <= MAX_FINALIZE_RETRIES; attempt++) {
                 try {
                     InterviewSession session = interviewSessionOwnershipService.requireOwnedSession(sessionId, userId);
                     boolean alreadyFinished = session != null
                             && InterviewSessionStatus.FINISHED.name().equalsIgnoreCase(session.getStatus());
 
+                    // 【关键节点：先保存再结束】先留存报告；若会话尚未结束，结束后再保存一次终态与时间字段。
                     saveInterviewRecord(sessionId, userId, new InterviewRecordSaveReqDTO());
                     if (!alreadyFinished) {
                         interviewSessionService.finishSession(sessionId, userId);
@@ -268,6 +285,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         } catch (Exception ex) {
             throw new ClientException("failed to finalize interview record, please retry");
         } finally {
+            // 收口锁只在当前线程仍持有时释放；成功、失败和重试耗尽都会经过 finally。
             interviewFinalizeLockService.release(finalizeLock);
         }
     }
@@ -285,6 +303,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         }
     }
 
+    // 基础字段解析区：分数优先取显式请求值，其次数据库主问题均分，最后沿用已有报告；无依据时保留 null。
     private Integer resolveInterviewScore(
             String sessionId,
             InterviewRecordSaveReqDTO requestParam,
@@ -299,6 +318,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return existingRecord == null ? null : existingRecord.getInterviewScore();
     }
 
+    // 报告题量统计包含已生成追问；建议和面试方向在后续辅助方法中按请求/数据库来源顺序选择。
     private Integer resolveQuestionCount(String sessionId) {
         return questionStore.countAll(sessionId);
     }
@@ -330,6 +350,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return null;
     }
 
+    // 普通展示转换区：容错解析建议 JSON、按键排序拼接、归一状态并计算时长；不生成新的 AI 评价。
     private Map<String, String> parseSuggestionsJson(String json) {
         if (StrUtil.isBlank(json)) {
             return Collections.emptyMap();
@@ -391,6 +412,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         for (InterviewQuestionItem item : questions) {
             questionMap.put(item.getQuestionNo(), item);
         }
+        // 以数据库提交为回合来源，把题干、回答、评分和追问标记关联起来；主问题均分随遍历累积。
         List<InterviewAnswerSubmission> submissions = submissionStore.listByQuestionOrder(sessionId);
         List<InterviewTurnLog> turns = new ArrayList<>(submissions.size());
         List<String> questionOrder = new ArrayList<>(questionMap.keySet());
@@ -406,6 +428,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
                 mainSum += clampScore(submission.getScore());
                 mainCount++;
             }
+            // 回放的下一题按现存题库顺序关联，属于报告视图；这里不会真的推进会话。
             String nextQuestionNo = null;
             int orderIndex = questionOrder.indexOf(submission.getQuestionNo());
             if (orderIndex >= 0 && orderIndex + 1 < questionOrder.size()) {
@@ -434,6 +457,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return value != null && value == 1;
     }
 
+    // 快照封装区：保存会话元信息、模型/提示词版本、回合、雷达、复盘建议和快照时间；是 JSON 存储结构。
     private String buildSessionSnapshotJson(
             InterviewSession session,
             InterviewMaterial material,
@@ -473,6 +497,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
     private void enrichReportFields(String sessionId, InterviewRecordDO record, InterviewRecordRespDTO respDTO) {
         Map<String, Object> snapshot = parseSnapshot(record == null ? null : record.getSessionSnapshotJson());
 
+        // 展示数据优先读报告快照；雷达或回合缺失时，再分别用材料分/主问题均分和数据库提交重建。
         RadarChartDTO radarChart = parseRadarFromSnapshot(snapshot);
         if (radarChart == null) {
             InterviewMaterial material = materialStore.findBySession(sessionId);
@@ -510,6 +535,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         respDTO.setJdCoverage(buildJdCoverage(sessionId, material, turns));
     }
 
+    // 【关键节点：岗位考察依据】汇总题目关联要求与 JD 必需技能，按主问题号关联作答证据；有题且有作答才标已考察。
     private List<JdCoverageItemRespDTO> buildJdCoverage(String sessionId, InterviewMaterial material,
                                                         List<InterviewTurnLog> turns) {
         LinkedHashSet<String> requirements = new LinkedHashSet<>();
@@ -550,6 +576,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return coverage;
     }
 
+    // 岗位字段解析区：从题目映射中取 requirement，从 JD 上下文取 requiredSkills；损坏字段返回空结果。
     private String resolveRequirement(String targetContextJson) {
         if (StrUtil.isBlank(targetContextJson)) {
             return null;
@@ -597,6 +624,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         return separator > 0 ? normalized.substring(0, separator) : normalized;
     }
 
+    // 报告快照解析区：JSON 或单个子结构不可读时返回空/null，让调用方用数据库或规则补齐。
     private Map<String, Object> parseSnapshot(String snapshotJson) {
         if (StrUtil.isBlank(snapshotJson)) {
             return Collections.emptyMap();
@@ -679,6 +707,7 @@ public class InterviewRecordServiceImpl extends ServiceImpl<InterviewRecordMappe
         }
     }
 
+    // 复盘文案生成区：基于已有回合评语和雷达，按本地规则组织总体评价、亮点、改进与行动项，不再请求大模型。
     private InterviewReviewFeedbackRespDTO buildReviewFeedback(
             List<InterviewTurnLog> turns,
             RadarChartDTO radarChart,

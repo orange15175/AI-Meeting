@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <flow>
+    <!-- 【关键节点：追问规则顺序】加载上下文 → 终态检查 → 次数上限 → AI 建议 → 低分 → 遗漏点 → 汇总决策。
+         THEN 按顺序调用全部节点；判定节点用 terminated 跳过被守卫终止的决策，汇总节点仍会执行。
+         规则只判定是否追问，题干生成和数据库游标提交由 Java 流水线负责。 -->
     <chain name="default_followup_chain">
         THEN(loadFollowUpContext,completedStateGuard,followUpLimitGuard,aiSuggestionJudge,lowScoreJudge,missingPointsJudge,followUpDecisionFinalize);
     </chain>

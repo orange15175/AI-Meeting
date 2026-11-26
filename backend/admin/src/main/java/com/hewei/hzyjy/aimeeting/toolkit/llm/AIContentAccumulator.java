@@ -43,8 +43,4 @@ public class AIContentAccumulator {
         return reasoningBuilder.toString();
     }
 
-    public void reset() {
-        contentBuilder.setLength(0);
-        reasoningBuilder.setLength(0);
-    }
 }

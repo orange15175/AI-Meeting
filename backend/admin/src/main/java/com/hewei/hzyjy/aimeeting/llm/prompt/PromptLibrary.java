@@ -25,7 +25,23 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class PromptLibrary {
 
-    public static final String INTERVIEW_QUESTION_EXTRACTION = "prompts/interview/question-extraction.v3.md";
+    /**
+     * v3 出题模板：questions 为字符串数组，题号与考察点靠模型自带编号对齐。
+     * 保留常量只为历史溯源（prompt_version 已落库），运行期不再加载。
+     */
+    public static final String INTERVIEW_QUESTION_EXTRACTION_V3 = "prompts/interview/question-extraction.v3.md";
+
+    /**
+     * v4 出题模板：questions 为对象数组，题干与分类/难度/依据/要点绑定；
+     * 题号由后端在整批校验通过后生成，避免空题过滤造成的题号错位。
+     */
+    public static final String INTERVIEW_QUESTION_EXTRACTION = "prompts/interview/question-extraction.v4.md";
+
+    /**
+     * v4 校验失败后的一次性修复模板：携带原结果与明确错误，要求返回完整对象。
+     */
+    public static final String INTERVIEW_QUESTION_EXTRACTION_REPAIR =
+            "prompts/interview/question-extraction-repair.v1.md";
 
     public static final String INTERVIEW_ANSWER_EVALUATION = "prompts/interview/answer-evaluation.v3.md";
 

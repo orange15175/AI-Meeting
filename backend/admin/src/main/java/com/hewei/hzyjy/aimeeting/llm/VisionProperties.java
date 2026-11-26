@@ -22,8 +22,15 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "ai-meeting.vision")
 public class VisionProperties {
 
-    /** OpenAI 兼容端点，需包含 /v1 前缀。 */
-    private String baseUrl = "https://cn-beijing.maas.qianwenapi.com/compatible-mode/v1";
+    /**
+     * OpenAI 兼容端点，需包含 /v1 前缀。
+     *
+     * <p>这里的字段默认值必须与 application.yaml 保持一致：Spring 绑定无论如何都会覆盖它，
+     * 但一旦有人删掉 yaml 里的 base-url（或脱离 Spring 直接 new 本类做单测），
+     * 字段默认值就会变成实际生效值。旧的 cn-beijing.maas.qianwenapi.com 已无法解析，
+     * 保留它只会制造"看起来配了、实际 DNS 失败"的故障。</p>
+     */
+    private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
     /** 视觉模型名。 */
     private String model = "qwen3.8-omni-flash";

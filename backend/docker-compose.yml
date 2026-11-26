@@ -10,13 +10,17 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      # 与连接串的 serverTimezone=Asia/Shanghai 对齐。默认容器时区是 UTC，
+      # 会导致 DB 生成的 NOW() 是 UTC 字面、JDBC 写入的是 +08 字面，
+      # 同一 DATETIME 列混两种语义，租约/超时判断会整体偏移 8 小时。
+      - --default-time-zone=+08:00
     volumes:
       - ai-meeting-mysql-data:/var/lib/mysql
       # 01/02 为 DDL：01 建 4 张仍在使用的基础表（admin_permission/ai_properties/
       # interview_record/t_user），02 建重构后 6 张核心表（interview_session/material/
       # question_item/answer_submission、ai_conversation/ai_message）。
       # 03~05 为对应的种子数据，必须排在 DDL 之后。
-      # 注意：旧全量 table.sql 含已退役的 agent_*/ai_message_media 表，仅作历史归档，不用于新库初始化。
+      # 注意：旧全量 docs/legacy/sql/table.sql 含已退役的 agent_*/ai_message_media 表，仅作历史归档，不用于新库初始化。
       - ./admin/src/main/resources/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./admin/src/main/resources/sql/interview_core.sql:/docker-entrypoint-initdb.d/02-interview-core.sql:ro
       - ./admin/src/main/resources/sql/admin_permission.sql:/docker-entrypoint-initdb.d/03-admin_permission.sql:ro
@@ -72,7 +76,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
       # 视觉模型：地址/模型已预置，只填 VISION_API_KEY 即可启用。
-      VISION_BASE_URL: ${VISION_BASE_URL:-https://cn-beijing.maas.qianwenapi.com/compatible-mode/v1}
+      VISION_BASE_URL: ${VISION_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       VISION_MODEL: ${VISION_MODEL:-qwen3.8-omni-flash}
       VISION_API_KEY: ${VISION_API_KEY:-}
       AI_MEETING_STORAGE_BASE_DIR: /app/data
@@ -90,8 +94,52 @@ services:
       retries: 10
       start_period: 60s
 
+  # 指标链路：backend 暴露 /actuator/prometheus → Prometheus 每 15s 抓取 → Grafana 读 Prometheus。
+  # 只做指标，不含日志正文；Prompt 与回答内容不会出现在这里。
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
+    container_name: ai-meeting-prometheus
+    depends_on:
+      backend:
+        # 只等容器启动，不等健康检查：监控迟到比拖慢主链路更划算。
+        condition: service_started
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 默认 15 天，开发机够用；上线要按磁盘容量重算。
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ai-meeting-prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
+    container_name: ai-meeting-grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # 关闭匿名访问与注册，本地也不必留口子。
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      # provisioning 与 dashboards 只读挂载，改 JSON 后重启 grafana 即生效。
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ai-meeting-grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
 volumes:
   ai-meeting-mysql-data:
   ai-meeting-redis-data:
   ai-meeting-backend-data:
   ai-meeting-backend-logs:
+  ai-meeting-prometheus-data:
+  ai-meeting-grafana-data:

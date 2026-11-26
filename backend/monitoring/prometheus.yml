@@ -1,0 +1,17 @@
+global:
+  # 15s 与 Spring Boot 默认的指标刷新节奏匹配，足够看清熔断状态翻转。
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ai-meeting-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # 两个候选地址，按启动方式保留其一（另一个会显示 DOWN，不影响数据）：
+      #   host.docker.internal:8002 —— 应用用 IDE / mvn spring-boot:run 跑在宿主机时用这个
+      #   backend:8002              —— 应用也用 docker compose 起时用这个
+      - targets:
+          - "host.docker.internal:8002"
+          - "backend:8002"
+        labels:
+          application: ai-meeting

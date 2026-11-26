@@ -50,4 +50,17 @@ public class InterviewQuestionReqDTO {
      */
     private Integer expectedSessionVersion;
 
+    /**
+     * 本场主问题数量（字符串原样承载，由出题服务解析并校验区间；未传时用配置默认值）。
+     *
+     * <p>不用 {@code Integer}：multipart 缺省时基本类型会拿到 null 之外的语义分歧，
+     * 而非法字符串会在绑定阶段直接 400，前端拿不到可读提示。</p>
+     */
+    private String questionCount;
+
+    /**
+     * 整场难度倾向：AUTO / BASIC / ADVANCED / CHALLENGE，也接受中文标签；未传时为 AUTO。
+     */
+    private String difficulty;
+
 }

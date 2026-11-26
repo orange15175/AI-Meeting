@@ -21,15 +21,17 @@ public class InterviewAiSessionLockService {
     private final RedissonClient redissonClient;
     private final InterviewAnswerGuardConfiguration configuration;
 
+    // 出题重操作锁按 stage + sessionId 分键，使用固定租期；与答题锁不是同一把锁，不能代替数据库版本校验。
     public RLock acquire(String sessionId, String stage) throws InterruptedException {
         if (StrUtil.isBlank(sessionId) || StrUtil.isBlank(stage)) {
             return null;
         }
         RLock lock = redissonClient.getLock(LOCK_KEY_PREFIX + stage + ":" + sessionId);
+        // 等待时间与租期同为毫秒，避免把毫秒值按秒解释（曾出现 lock-wait=500 变成等待 500 秒）。
         boolean acquired = lock.tryLock(
                 resolveWaitMillis(),
-                resolveExpireSeconds(),
-                TimeUnit.SECONDS
+                resolveExpireMillis(),
+                TimeUnit.MILLISECONDS
         );
         return acquired ? lock : null;
     }
@@ -40,12 +42,10 @@ public class InterviewAiSessionLockService {
         }
     }
 
-    private long resolveExpireSeconds() {
-        Long configured = configuration.getLockExpireSeconds();
-        if (configured == null || configured <= 0) {
-            return 180L;
-        }
-        return configured;
+    private long resolveExpireMillis() {
+        Long configured = configuration.getHeavyLockExpireSeconds();
+        long seconds = configured == null || configured <= 0 ? 180L : configured;
+        return TimeUnit.SECONDS.toMillis(seconds);
     }
 
     private long resolveWaitMillis() {

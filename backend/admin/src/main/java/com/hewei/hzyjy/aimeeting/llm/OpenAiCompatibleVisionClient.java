@@ -12,6 +12,10 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -81,8 +85,45 @@ public class OpenAiCompatibleVisionClient implements VisionChatClient {
         } catch (ClientException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Vision recognize failed, model={}", properties.getModel(), e);
-            throw new ClientException("视觉模型调用失败: " + e.getMessage());
+            log.error("Vision recognize failed, baseUrl={}, model={}",
+                    properties.getBaseUrl(), properties.getModel(), e);
+            throw new ClientException("视觉模型调用失败: " + describeFailure(e));
+        }
+    }
+
+    /**
+     * 把底层 IO 异常翻译成能直接指向配置项的提示。
+     *
+     * <p>原始异常形如 {@code I/O error on POST request for "https://...": <host>}，
+     * 末尾那段其实是 {@link UnknownHostException} 的消息，但前端只会看到一句无信息量的
+     * "I/O error"，既分不清是域名写错、网络不通还是超时，也看不出该改哪个配置。
+     * 这里按异常类型给出三句可执行的提示。</p>
+     */
+    String describeFailure(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof UnknownHostException) {
+                return "视觉模型地址无法解析（" + resolveHost() + "），请检查 VISION_BASE_URL";
+            }
+            if (current instanceof ConnectException) {
+                return "无法连接视觉模型服务（" + resolveHost() + "），请检查网络或代理";
+            }
+            if (current instanceof SocketTimeoutException) {
+                return "视觉模型响应超时（" + properties.resolveTimeout().toSeconds()
+                        + " 秒），可调大 VISION_TIMEOUT_SECONDS";
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+        }
+        return StrUtil.blankToDefault(error.getMessage(), error.getClass().getSimpleName());
+    }
+
+    private String resolveHost() {
+        try {
+            String host = URI.create(properties.getBaseUrl()).getHost();
+            return StrUtil.blankToDefault(host, properties.getBaseUrl());
+        } catch (IllegalArgumentException e) {
+            return properties.getBaseUrl();
         }
     }
 

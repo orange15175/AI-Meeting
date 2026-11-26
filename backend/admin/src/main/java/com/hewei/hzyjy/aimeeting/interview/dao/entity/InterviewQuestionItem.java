@@ -42,8 +42,19 @@ public class InterviewQuestionItem {
     @TableField("content")
     private String content;
 
+    /**
+     * 考察分类：PROJECT / JOB / FUNDAMENTAL；历史行为 NULL。
+     */
     @TableField("category")
     private String category;
+
+    /**
+     * 题目难度：EASY / MEDIUM / HARD；历史行为 NULL。
+     *
+     * <p>与 category 一样只用于复盘与报告展示，不参与评分与出题导航。</p>
+     */
+    @TableField("difficulty")
+    private String difficulty;
 
     /**
      * 评分要点，仅服务端使用，不下发前端。

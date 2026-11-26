@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class InterviewFlowStateMachine {
 
+    // 从数据库会话行映射出计算用状态快照；保留 version 供之后提交校验，本方法不会保存状态。
     public InterviewFlowState toFlow(InterviewSession session) {
         if (session == null) {
             return null;
@@ -30,6 +31,7 @@ public class InterviewFlowStateMachine {
         return state;
     }
 
+    // 题内终态依据 flowStatus 判断；整场生命周期 status 的可恢复/结束检查在会话服务层完成。
     public boolean isCompleted(InterviewFlowState state) {
         return state != null && InterviewFlowStatus.from(state.getStatus()).isTerminal();
     }
@@ -51,7 +53,8 @@ public class InterviewFlowStateMachine {
     }
 
     /**
-     * 计算下一步：优先追问，其次下一主问题，末题结束。
+     * 【关键节点：路由规划】优先追问，其次下一主问题，末题结束；只返回计划，由提交服务推进数据库游标。
+     * 例如主问题 3 可进入 3-F1，再进入 3-F2；达到追问上限后进入 4，超出主问题总数则结束。
      */
     public InterviewNextStep plan(
             InterviewFlowState current,
@@ -65,17 +68,20 @@ public class InterviewFlowStateMachine {
         if (mainIndex <= 0) {
             mainIndex = 1;
         }
+        // 先解析当前主问题序号、追问次数和上限，再依次判断追问、下一主问题、结束三个分支。
         int maxFollowUp = current.getMaxFollowUp() == null || current.getMaxFollowUp() <= 0
                 ? 2
                 : current.getMaxFollowUp();
         int followUpIndex = followUpIndexOf(current.getCurrentQuestionNumber());
 
+        // 分支 1：决策要求追问、题干非空且次数未超限，才规划同一主问题的下一次追问。
         if (needFollowUp && StrUtil.isNotBlank(followUpQuestion) && followUpIndex < maxFollowUp) {
             int nextFollowUpIndex = followUpIndex + 1;
             return InterviewNextStep.followUp(
                     mainIndex + "-F" + nextFollowUpIndex, mainIndex, nextFollowUpIndex);
         }
 
+        // 分支 2/3：未产生追问就推进主问题；已经越过最后一题则规划 FINISH，等待事务提交该计划。
         int nextMainIndex = mainIndex + 1;
         if (totalQuestions <= 0 || nextMainIndex > totalQuestions) {
             return InterviewNextStep.finish();

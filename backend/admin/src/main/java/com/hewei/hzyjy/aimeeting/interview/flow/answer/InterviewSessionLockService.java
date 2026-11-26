@@ -13,7 +13,11 @@ import java.util.concurrent.TimeUnit;
  * 会话级互斥锁：同一会话同一时刻只接受一项改变流程的操作。
  *
  * <p>锁只负责"串行化入口"，不承担幂等与状态判定——那两件事由 MySQL 的
- * 唯一键、版本号与 attemptToken 完成。锁默认走 Redisson 看门狗续期。</p>
+ * 唯一键、租约（heartbeat_at / deadline_at）与 attemptToken 完成。</p>
+ *
+ * <p><b>刻意不使用看门狗续期。</b>锁的保护窗口是有界的（一次答题最多两次模型调用），
+ * 而无限续期会让卡死的线程永久占住临界区，接管请求连 claim 都到不了。
+ * 锁过期不安全吗？不——锁过期后新请求仍要过 claim 的租约条件，能不能接管由数据库决定。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -24,6 +28,7 @@ public class InterviewSessionLockService {
     private final RedissonClient redissonClient;
     private final InterviewAnswerGuardConfiguration configuration;
 
+    // 答题锁按 sessionId 分键；固定租期内不续期，到点自动释放。抢不到锁返回 null，由流水线返回忙。
     public RLock acquire(String sessionId) throws InterruptedException {
         if (StrUtil.isBlank(sessionId)) {
             return null;

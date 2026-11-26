@@ -100,6 +100,8 @@ public class InterviewMaterialExtractor {
         String extension = extensionOf(file.getOriginalFilename());
         byte[] bytes = file.getBytes();
 
+        // 【关键节点：解析分流】图片直接走视觉识别；PDF 先读文本层，无文字才渲染页面走 OCR。
+        // type 决定简历或 JD 的识别提示词；识别结果只是材料文本，不是模型出题结果。
         if (IMAGE_EXTENSIONS.contains(extension)) {
             return extractFromImage(bytes, extension, file.getOriginalFilename(), materialType);
         }
@@ -113,6 +115,7 @@ public class InterviewMaterialExtractor {
         return extractFromScannedPdf(bytes, materialType);
     }
 
+    // 图片路径：校验视觉模型可用，将原图编码为带 MIME 类型的 Base64，再用简历/JD 各自的 OCR 提示词识别。
     private String extractFromImage(byte[] bytes, String extension, String fileName, MaterialType type) {
         requireVisionConfigured("图片" + type.label());
         String mimeType = "jpg".equals(extension) ? "jpeg" : extension;
@@ -122,6 +125,7 @@ public class InterviewMaterialExtractor {
         return normalize(text, type);
     }
 
+    // 扫描 PDF 路径：先把各页渲染成图片，再一次提交视觉识别；识别只提取文字，出题仍是后续文本模型任务。
     private String extractFromScannedPdf(byte[] bytes, MaterialType type) throws IOException {
         requireVisionConfigured("扫描版 PDF " + type.label());
         List<VisionImage> images = renderPdfPages(bytes, type);
@@ -133,6 +137,7 @@ public class InterviewMaterialExtractor {
         return normalize(text, type);
     }
 
+    // 控制视觉输入体积：读取 DPI 与页数上限，超过上限明确报错；逐页转 JPEG 后在 try-with-resources 结束时关闭 PDF。
     private List<VisionImage> renderPdfPages(byte[] bytes, MaterialType type) throws IOException {
         List<VisionImage> images = new ArrayList<>();
         int dpi = visionProperties.getRenderDpi() == null ? 150 : visionProperties.getRenderDpi();
@@ -165,6 +170,7 @@ public class InterviewMaterialExtractor {
         }
     }
 
+    // 普通文本整理：清理不换行空格、压缩过多空行，并按简历/JD 各自长度预算截断，限制后续提示词体积。
     private String normalize(String text, MaterialType type) {
         if (StrUtil.isBlank(text)) {
             return "";

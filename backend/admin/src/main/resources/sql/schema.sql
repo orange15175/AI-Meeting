@@ -1,7 +1,7 @@
 -- 重构后全新部署所需的基础表 DDL（MySQL 8.0+，utf8mb4）。
 -- 只包含当前仍被业务读写的 4 张基础表；面试/聊天的 6 张核心表见 interview_core.sql。
 -- 已退役的 agent_file_asset / agent_properties / agent_tag / ai_message_media
--- 不再建表，历史归档见 table.sql（仅作备份参考，不用于新库初始化）。
+-- 不再建表，历史归档见 docs/legacy/sql/table.sql（相对 backend）（仅作备份参考，不用于新库初始化）。
 
 SET NAMES utf8mb4;
 

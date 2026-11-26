@@ -6,6 +6,9 @@ import com.hewei.hzyjy.aimeeting.interview.application.rule.InterviewFollowUpRul
 import com.yomahub.liteflow.annotation.LiteflowComponent;
 import com.yomahub.liteflow.core.NodeComponent;
 
+/**
+ * 【关键节点：规则 6】回答存在遗漏点或追问提示时触发追问；具体追问题干由生成服务负责。
+ */
 @LiteflowComponent("missingPointsJudge")
 public class MissingPointsJudgeNode extends NodeComponent {
 

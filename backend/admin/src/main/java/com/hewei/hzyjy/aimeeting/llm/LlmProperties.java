@@ -69,6 +69,25 @@ public class LlmProperties {
         return Duration.ofSeconds(value == null ? timeoutSeconds : value);
     }
 
+    /**
+     * 所有场景里最大的超时预算。
+     *
+     * <p>ChatModel 内部持有共享的 HTTP 客户端（连接池），无法按场景切换超时，
+     * 因此客户端层取"最宽的那一档"，真正的按场景收紧交给 Resilience4j 的 TimeLimiter。
+     * 如果这里只取全局 {@code timeoutSeconds}，出题场景配的 180 秒会被悄悄压回 120 秒。</p>
+     */
+    public Duration resolveMaxTimeout() {
+        int max = timeoutSeconds == null ? 120 : timeoutSeconds;
+        if (scenes != null) {
+            for (SceneOptions options : scenes.values()) {
+                if (options != null && options.getTimeoutSeconds() != null) {
+                    max = Math.max(max, options.getTimeoutSeconds());
+                }
+            }
+        }
+        return Duration.ofSeconds(max);
+    }
+
     public boolean isConfigured() {
         return StrUtil.isNotBlank(apiKey);
     }

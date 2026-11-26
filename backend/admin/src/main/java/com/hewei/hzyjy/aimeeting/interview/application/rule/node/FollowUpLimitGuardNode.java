@@ -4,6 +4,9 @@ import com.hewei.hzyjy.aimeeting.interview.application.rule.InterviewFollowUpRul
 import com.yomahub.liteflow.annotation.LiteflowComponent;
 import com.yomahub.liteflow.core.NodeComponent;
 
+/**
+ * 【关键节点：规则 3】达到追问次数上限则终止判定，后续 AI 建议或低分不能覆盖这个结果。
+ */
 @LiteflowComponent("followUpLimitGuard")
 public class FollowUpLimitGuardNode extends NodeComponent {
 

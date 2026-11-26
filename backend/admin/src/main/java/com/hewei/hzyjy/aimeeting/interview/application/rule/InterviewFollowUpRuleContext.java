@@ -54,6 +54,10 @@ public class InterviewFollowUpRuleContext {
         terminated = true;
     }
 
+    /**
+     * 【关键节点：规则优先级】首次追问触发原因保留，后续触发不会覆盖它；
+     * 与 markNoFollowUp 不同，本方法不设置 terminated，后续判定节点仍会执行。
+     */
     public void markNeedFollowUp(String reasonCode, String reasonText) {
         ensureDecision();
         if (!decision.isNeedFollowUp()) {

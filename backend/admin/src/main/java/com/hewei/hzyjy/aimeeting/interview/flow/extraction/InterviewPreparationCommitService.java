@@ -45,7 +45,10 @@ public class InterviewPreparationCommitService {
         private String resumeText;
         private String interviewType;
         private Integer resumeScore;
-        private List<String> questions;
+        /**
+         * 整批主问题：题号、题干、分类、难度、要点按同一数组下标对齐。
+         */
+        private List<InterviewQuestionStore.MainQuestion> questions;
         private List<String> suggestions;
         private Map<String, List<String>> questionPoints;
         private Map<String, Object> questionTargets;
@@ -62,12 +65,19 @@ public class InterviewPreparationCommitService {
         private Integer responseTime;
     }
 
+    /**
+     * 【关键节点：准备事务】先按起始 version 更新会话游标，再替换本轮材料/题库及问答。
+     * 任一步失败整笔回滚；模型调用不应放入本事务，以免长时间占用数据库连接和锁。
+     */
     @Transactional(rollbackFor = Exception.class)
     public boolean commitSucceeded(PreparationCommand command) {
+        // 第 1 段：计算题量并按起始版本重置当前题到第 1 题；版本冲突在替换题库前抛出。
         Integer totalQuestions = command.getQuestions() == null ? 0 : command.getQuestions().size();
         applySessionReset(command, totalQuestions);
+        // 第 2 段：重新出题时清除本场旧提交；本操作在事务内，后续任何失败都会连同删除一起回滚。
         submissionStore.deleteBySession(command.getSessionId());
 
+        // 第 3 段：保存本轮材料快照、替换主问题，再按题号回填内部考察点和岗位映射，确保同一轮数据一致。
         saveMaterial(command, InterviewMaterialStore.STATUS_SUCCEEDED, null);
         questionStore.replaceMainQuestions(command.getSessionId(), command.getQuestions());
         applyQuestionPoints(command);
@@ -92,6 +102,7 @@ public class InterviewPreparationCommitService {
             log.info("Preparation failed after a successful snapshot, keep snapshot, sessionId={}", sessionId);
             return;
         }
+        // 没有成功快照时，保存已有简历路径/文本及失败诊断；不能把这条 FAILED 记录当作可用题库。
         PreparationCommand command = PreparationCommand.builder()
                 .sessionId(sessionId)
                 .resumeFileUrl(resumeFileUrl)
@@ -101,6 +112,7 @@ public class InterviewPreparationCommitService {
         saveMaterial(command, InterviewMaterialStore.STATUS_FAILED, errorMessage);
     }
 
+    // 【关键节点：准备版本校验】优先使用 Facade 在调用模型前记录的 version；没有传入时才读当前版本。
     private void applySessionReset(PreparationCommand command, int totalQuestions) {
         Integer expectedVersion = command.getExpectedSessionVersion();
         if (expectedVersion == null) {
@@ -126,6 +138,7 @@ public class InterviewPreparationCommitService {
     }
 
     private void saveMaterial(PreparationCommand command, String status, String errorMessage) {
+        // 材料字段分组：先存解析状态和简历基础信息，再序列化上下文、建议和模型原始输出，最后单独覆盖 JD 列。
         InterviewMaterial material = new InterviewMaterial();
         material.setSessionId(command.getSessionId());
         material.setParseStatus(status);
@@ -147,6 +160,7 @@ public class InterviewPreparationCommitService {
             material.setRawResponse(command.getRawResponse());
         }
         InterviewMaterial existing = materialStore.findBySession(command.getSessionId());
+        // parseVersion 是材料解析轮次，不是会话乐观锁 version；每次保存材料时单独递增。
         material.setParseVersion(existing == null || existing.getParseVersion() == null
                 ? 1
                 : existing.getParseVersion() + 1);
@@ -201,6 +215,7 @@ public class InterviewPreparationCommitService {
         }
     }
 
+    // 普通展示数据转换：把建议列表变为从 1 开始的字符串键映射，跳过空建议。
     private Map<String, String> toIndexedMap(List<String> values) {
         Map<String, String> indexed = new LinkedHashMap<>();
         for (int i = 0; i < values.size(); i++) {

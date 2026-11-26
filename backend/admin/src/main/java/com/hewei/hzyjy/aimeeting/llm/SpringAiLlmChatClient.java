@@ -22,12 +22,15 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.DefaultResponseErrorHandler;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -46,20 +49,28 @@ public class SpringAiLlmChatClient implements LlmChatClient {
 
     private static final String PROVIDER_DEEPSEEK = "deepseek";
 
+    /**
+     * 建连超时：与"模型生成要多久"无关，只防 DNS/握手卡死，固定短值即可。
+     */
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+
     private final LlmProperties properties;
 
     private volatile ChatClient chatClient;
 
     @PostConstruct
     void logConfiguration() {
-        log.info("LLM configured, provider={}, baseUrl={}, defaultModel={}, apiKeyPresent={}",
+        // 把实际生效的读超时打出来：出题超时问题排查时，第一条要确认的就是"配置有没有进到客户端"。
+        log.info("LLM configured, provider={}, baseUrl={}, defaultModel={}, apiKeyPresent={}, readTimeoutSeconds={}",
                 properties.getProvider(),
                 properties.getBaseUrl(),
                 properties.getModel(),
-                properties.isConfigured());
+                properties.isConfigured(),
+                properties.resolveMaxTimeout().toSeconds());
     }
 
     @Override
+    // 同步模型调用：取得复用客户端，组装 system/history/user 消息和场景参数，等待返回正文；结构化业务校验由上层负责。
     public String complete(LlmRequest request) {
         long start = System.currentTimeMillis();
         String content = client()
@@ -97,6 +108,7 @@ public class SpringAiLlmChatClient implements LlmChatClient {
         return properties.getProvider() + "/" + properties.getModel();
     }
 
+    // 消息组装顺序为系统消息 → 有效历史消息 → 本次用户消息；空历史项跳过，不能把全部消息混成一个角色。
     private List<Message> buildMessages(LlmRequest request) {
         List<Message> messages = new ArrayList<>();
         if (request.hasSystemPrompt()) {
@@ -116,6 +128,7 @@ public class SpringAiLlmChatClient implements LlmChatClient {
         return messages;
     }
 
+    // 请求参数按场景解析模型、温度和输出上限；DeepSeek 使用专用 Options，其余走 OpenAI 兼容 Options。
     private ChatOptions buildOptions(LlmRequest request) {
         String scene = request.getScene();
         String model = properties.resolveModel(scene);
@@ -140,6 +153,7 @@ public class SpringAiLlmChatClient implements LlmChatClient {
                 .build();
     }
 
+    // 首次调用时懒加载客户端并缓存；双重检查配合同步块，避免并发首次请求重复创建底层连接资源。
     private ChatClient client() {
         ChatClient current = chatClient;
         if (current != null) {
@@ -153,11 +167,14 @@ public class SpringAiLlmChatClient implements LlmChatClient {
         }
     }
 
+    // 【关键节点：供应商适配】先检查 API Key，按 provider 选择 DeepSeek 或 OpenAI 兼容实现；此处 SDK 重试设为 1 次尝试。
     private ChatModel buildChatModel() {
         if (!properties.isConfigured()) {
             throw new ClientException("大模型 API Key 未配置，请设置环境变量 LLM_API_KEY 或 application-local.yaml");
         }
-        RestClient.Builder restClientBuilder = RestClient.builder();
+        Duration readTimeout = properties.resolveMaxTimeout();
+        RestClient.Builder restClientBuilder = restClientBuilder(readTimeout);
+        WebClient.Builder webClientBuilder = webClientBuilder(readTimeout);
         RetryTemplate retryTemplate = RetryTemplate.builder().maxAttempts(1).build();
         ToolCallingManager toolCallingManager = ToolCallingManager.builder().build();
 
@@ -169,7 +186,7 @@ public class SpringAiLlmChatClient implements LlmChatClient {
                     "/chat/completions",
                     "/beta",
                     restClientBuilder,
-                    WebClient.builder(),
+                    webClientBuilder,
                     new DefaultResponseErrorHandler()
             );
             DeepSeekChatOptions defaultOptions = DeepSeekChatOptions.builder()
@@ -191,7 +208,7 @@ public class SpringAiLlmChatClient implements LlmChatClient {
                 "/chat/completions",
                 "/embeddings",
                 restClientBuilder,
-                WebClient.builder(),
+                webClientBuilder,
                 new DefaultResponseErrorHandler()
         );
         OpenAiChatOptions defaultOptions = OpenAiChatOptions.builder()
@@ -204,6 +221,32 @@ public class SpringAiLlmChatClient implements LlmChatClient {
                 retryTemplate,
                 ObservationRegistry.NOOP
         );
+    }
+
+    /**
+     * 同步调用用的 RestClient。
+     *
+     * <p>{@code RestClient.builder()} 不传工厂时，由 {@code ClientHttpRequestFactories} 按 classpath
+     * 自行挑选（本项目会选中 Reactor 实现），超时值完全不受 {@code ai-meeting.llm.timeout-seconds}
+     * 控制——出题配了 180 秒，实际仍在十几秒处被连接层掐断，对外表现为 AI_UNAVAILABLE。
+     * 这里显式指定 JDK HttpClient 与读超时，让配置真正生效。</p>
+     */
+    private RestClient.Builder restClientBuilder(Duration readTimeout) {
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(readTimeout);
+        return RestClient.builder().requestFactory(requestFactory);
+    }
+
+    /**
+     * 流式调用用的 WebClient。reactor-netty 的 responseTimeout 管的是"等首字节"，
+     * 与读超时语义一致，这里保持同一个预算，避免两条路径行为不一致。
+     */
+    private WebClient.Builder webClientBuilder(Duration readTimeout) {
+        return WebClient.builder().clientConnector(new ReactorClientHttpConnector(
+                reactor.netty.http.client.HttpClient.create().responseTimeout(readTimeout)));
     }
 
     private boolean isDeepSeek() {

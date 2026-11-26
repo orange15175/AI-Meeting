@@ -16,7 +16,7 @@
 
 ![项目概览](docs/assets/首页登陆.png)
 
-这是一个基于 Spring Boot 3 + Java 17 + Spring AI + MySQL + Redis 构建的 AI 文字模拟面试后端项目，聚焦「上传简历 → 生成题目 → 逐题回答 → 评分与追问 → 复盘报告」主流程，并保留一个 DeepSeek 普通文字聊天入口。模型直连 DeepSeek，正式数据收敛到 MySQL，Redis 仅保留会话锁、限流与登录态。前端已用 Vue 3 重写（见 `../ai-meeting-vue`）。
+这是一个基于 Spring Boot 3 + Java 17 + Spring AI + MySQL + Redis 构建的 AI 文字模拟面试后端项目，聚焦「上传简历 → 生成题目 → 逐题回答 → 评分与追问 → 复盘报告」主流程，并保留一个 DeepSeek 普通文字聊天入口。模型直连 DeepSeek，正式数据收敛到 MySQL，Redis 仅保留会话锁、限流与登录态。前端已用 Vue 3 重写（见 [frontend](../frontend)）。
 
 > 说明：本仓库已完成一轮架构重构（见 `docs/文字面试平台重构实施计划.md` 与 `docs/P0~P6-实施记录.md`）：移除了语音/神态分析、通用 Agent（星辰工作流）、MongoDB 与 WebSocket 端点，出题/评分/追问改为直连 DeepSeek，正式数据收敛到 MySQL。README 下文「功能特性/技术栈」已同步为重构后的现状，历史版本能力见 `docs/legacy/`。
 
@@ -112,7 +112,6 @@ AI-Meeting（码上面试平台）是我们项目的开源前身。在此基础�
 
 ![文档首页截图](docs/assets/文档首页截图.png)
 ![文档部分截图](docs/assets/文档截图.png)
-![文档部分截图](docs/assets/文档截图2.png)
 
 ## 技术栈
 
@@ -228,12 +227,18 @@ npm run build
 
 **凭据与部署**：真实密钥不入库。后端凭据从环境变量或 `admin/application-local.yaml`（已 gitignore）注入；一键部署请复制 `.env.example` 为 `.env` 并填入 `LLM_API_KEY`，然后执行 `docker compose up -d --build`。Docker 初始化会自动建 `interview_core.sql` 中的 6 张核心表，无需手工导 SQL。前端生产用 `dist/` 反代 `/api` 到后端 8002。
 
-**视觉模型（可选）**：图片简历与扫描版 PDF 需要视觉模型 OCR。地址与模型名已预置为千问 MaaS 的 `qwen3.8-omni-flash`（`VISION_BASE_URL` / `VISION_MODEL`），**只需在 `.env` 填 `VISION_API_KEY`**（或本地 `admin/application-local.yaml` 的 `ai-meeting.vision.api-key`）即可启用。留空时应用照常启动，文本型 PDF 流程完全不受影响；仅当上传图片/扫描件时提示配置密钥。本地直连可用环境变量：
+**视觉模型（可选）**：图片简历与扫描版 PDF 需要视觉模型 OCR。地址已预置为阿里云百炼的 OpenAI 兼容端点 `https://dashscope.aliyuncs.com/compatible-mode/v1`（可用 `VISION_BASE_URL` 覆盖），**只需在 `.env` 填 `VISION_API_KEY`**（或本地 `admin/application-local.yaml` 的 `ai-meeting.vision.api-key`）即可启用。留空时应用照常启动，文本型 PDF 流程完全不受影响；仅当上传图片/扫描件时提示配置密钥。本地直连可用环境变量：
 
 ```bash
-VISION_BASE_URL=https://cn-beijing.maas.qianwenapi.com/compatible-mode/v1
-VISION_MODEL=qwen3.8-omni-flash
+# 公共端点（推荐）：模型名必须用该端点上存在的多模态模型
+VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+VISION_MODEL=qwen-vl-max-latest
 VISION_API_KEY=<在此填入你的密钥>
+
+# 若使用业务空间专属域名，则形如（{WorkspaceId} 在百炼控制台可查）：
+# VISION_BASE_URL=https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 ```
+
+> **两个都改，不能只改一个。** 旧的 `cn-beijing.maas.qianwenapi.com` 已无法解析（DNS 返回 Non-existent domain），继续使用会得到 `I/O error on POST request ...` 而没有任何 HTTP 状态码；换到公共端点后若仍用 MaaS 私有别名 `qwen3.8-omni-flash`，则会变成 `400 model_not_found`。
 
 **历史数据**：旧 Mongo 卷不自动删除；如需迁移请先盘点并另行制定维护窗口方案。旧 React 工程已移出项目目录，当前仅维护 Vue 前端。

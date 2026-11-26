@@ -14,7 +14,7 @@ class VisionPropertiesTest {
     void defaultsPointToPresetVisionEndpoint() {
         VisionProperties properties = new VisionProperties();
 
-        assertEquals("https://cn-beijing.maas.qianwenapi.com/compatible-mode/v1",
+        assertEquals("https://dashscope.aliyuncs.com/compatible-mode/v1",
                 properties.getBaseUrl());
         assertEquals("qwen3.8-omni-flash", properties.getModel());
     }

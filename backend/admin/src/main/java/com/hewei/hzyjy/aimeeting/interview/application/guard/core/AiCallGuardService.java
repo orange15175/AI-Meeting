@@ -58,7 +58,12 @@ public class AiCallGuardService {
         this.aiIoExecutor = aiIoExecutor;
     }
 
+    /**
+     * 【关键节点：模型治理】按出题/评分/追问阶段选策略，统一记录耗时并将模型异常转换为业务可识别错误。
+     * 保护关闭时直接执行；开启时依次经过熔断、并发隔离、重试和单次调用超时。
+     */
     public <T> T execute(String stage, String requestKey, Callable<T> action) {
+        // 按 stage 区分出题/评分/追问策略；统计整体执行耗时，成功与失败都记录指标。requestKey 仅用于日志定位。
         String safeStage = StrUtil.isNotBlank(stage) ? stage : "interview-default";
         long startNano = System.nanoTime();
         try {
@@ -71,6 +76,7 @@ public class AiCallGuardService {
             recordMetrics(safeStage, "success", System.nanoTime() - startNano);
             return result;
         } catch (Throwable ex) {
+            // 【关键节点：异常语义】把底层异常归类为超时/过载/不可用，向业务层抛统一异常；日志补充安全的类型和状态码。
             InterviewAiGuardException guardException = classifyException(ex, safeStage);
             String resultTag = guardException.getErrorCode().name().toLowerCase();
             recordMetrics(safeStage, resultTag, System.nanoTime() - startNano);
@@ -79,14 +85,38 @@ public class AiCallGuardService {
                 meterRegistry.counter("ai_bulkhead_rejected_total", "stage", safeStage).increment();
             }
             log.warn(
-                    "AI guarded call failed, stage={}, requestKey={}, code={}, message={}",
+                    "AI guarded call failed, stage={}, requestKey={}, code={}, elapsedMs={}, message={}, causeType={}, rootCauseType={}, httpStatus={}",
                     safeStage,
                     requestKey,
                     guardException.getErrorCode(),
-                    guardException.getMessage()
+                    (System.nanoTime() - startNano) / 1_000_000,
+                    guardException.getMessage(),
+                    unwrap(ex).getClass().getName(),
+                    rootCauseType(ex),
+                    upstreamHttpStatus(ex)
             );
             throw guardException;
         }
+    }
+
+    // 只记录异常类型和状态码，避免将上游响应正文、材料或凭据写入日志。
+    private String rootCauseType(Throwable error) {
+        Throwable current = error;
+        for (int depth = 0; depth < 32 && current.getCause() != null && current.getCause() != current; depth++) {
+            current = current.getCause();
+        }
+        return current.getClass().getName();
+    }
+
+    private Integer upstreamHttpStatus(Throwable error) {
+        Throwable current = error;
+        for (int depth = 0; depth < 32 && current != null; depth++) {
+            if (current instanceof org.springframework.web.client.RestClientResponseException responseException) {
+                return responseException.getStatusCode().value();
+            }
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return null;
     }
 
     private <T> T guardedExecute(String stage, Callable<T> action) throws Exception {
@@ -111,7 +141,8 @@ public class AiCallGuardService {
 
     private <T> T callWithTimeLimiter(String stage, Callable<T> action) throws Exception {
         TimeLimiter timeLimiter = timeLimiters.computeIfAbsent(stage, this::newTimeLimiter);
-        // AI I/O 调用放到专用线程池，避免占用业务线程，并由 TimeLimiter 统一裁剪超时。
+        // 【关键节点：超时边界】AI I/O 在专用线程池执行，业务线程同步等待；TimeLimiter 限制等待时间。
+        // 等待超时不代表远端模型已停止，迟到结果仍需由提交层的 attemptToken/version 拒绝。
         Callable<T> timeLimitedCall = TimeLimiter.decorateFutureSupplier(
                 timeLimiter,
                 () -> CompletableFuture.supplyAsync(() -> {
@@ -125,6 +156,7 @@ public class AiCallGuardService {
         return timeLimitedCall.call();
     }
 
+    // 熔断配置区：按阶段缓存熔断器，依据失败率和窗口决定是否短路调用，并把状态变化暴露给监控。
     private CircuitBreaker newCircuitBreaker(String stage) {
         CircuitBreakerConfig config = CircuitBreakerConfig.custom()
                 .failureRateThreshold(resolveFailureRateThreshold())
@@ -145,6 +177,7 @@ public class AiCallGuardService {
         return breaker;
     }
 
+    // 并发隔离限制同阶段同时进入的调用数，等待为零；满额直接拒绝，避免请求无限堆积。
     private Bulkhead newBulkhead(String stage) {
         InterviewAiGuardConfiguration.StagePolicy policy = configuration.resolveStagePolicy(stage);
         int maxConcurrent = policy.getMaxConcurrentCalls() != null && policy.getMaxConcurrentCalls() > 0
@@ -157,6 +190,7 @@ public class AiCallGuardService {
         return Bulkhead.of(stage, config);
     }
 
+    // 重试次数是额外尝试数，因此 maxAttempts = retryCount + 1；只有超时或 I/O 类异常符合这里的重试条件。
     private Retry newRetry(String stage) {
         InterviewAiGuardConfiguration.StagePolicy policy = configuration.resolveStagePolicy(stage);
         int retryCount = policy.getRetryCount() != null && policy.getRetryCount() >= 0 ? policy.getRetryCount() : 0;
@@ -172,6 +206,7 @@ public class AiCallGuardService {
         return Retry.of(stage, config);
     }
 
+    // 单次调用超时预算按阶段配置；超时后取消 Future 不保证已发出的远端请求立即终止。
     private TimeLimiter newTimeLimiter(String stage) {
         InterviewAiGuardConfiguration.StagePolicy policy = configuration.resolveStagePolicy(stage);
         long timeoutMillis = policy.getTimeoutMillis() != null && policy.getTimeoutMillis() > 0

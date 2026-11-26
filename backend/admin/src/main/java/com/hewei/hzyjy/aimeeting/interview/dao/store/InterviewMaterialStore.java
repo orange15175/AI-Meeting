@@ -22,6 +22,7 @@ public class InterviewMaterialStore {
 
     private final InterviewMaterialMapper materialMapper;
 
+    // 材料按会话 ID 查询，不跨用户共享；调用方应在业务入口完成该会话的归属校验。
     public InterviewMaterial findBySession(String sessionId) {
         if (StrUtil.isBlank(sessionId)) {
             return null;
@@ -71,6 +72,7 @@ public class InterviewMaterialStore {
     /**
      * 原地 upsert：唯一键 session_id 保证不会产生第二份材料。
      */
+    // 按 sessionId 查询已有材料，存在则复用主键更新，不存在则插入；JD 的空值覆盖由 updateJdColumns 单独负责。
     public InterviewMaterial save(InterviewMaterial material) {
         if (material == null || StrUtil.isBlank(material.getSessionId())) {
             return null;

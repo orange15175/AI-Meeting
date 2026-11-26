@@ -28,7 +28,9 @@ public class InterviewSessionServiceImpl implements InterviewSessionService {
 
     @Override
     public InterviewSessionCreateRespDTO createSession(Long userId) {
+        // 【面试主线 1/6】当前产品每个用户保留一场活动面试：先放弃旧活动会话，再创建 DRAFT。
         abandonActiveSessions(userId);
+        // 创建空白会话并落库；此时没有题目，返回的 sessionId 供后续上传简历、出题和答题串联使用。
         InterviewSession session = sessionStore.create(userId);
         return new InterviewSessionCreateRespDTO(session.getSessionId(), session.getStatus());
     }
@@ -69,6 +71,7 @@ public class InterviewSessionServiceImpl implements InterviewSessionService {
     }
 
     @Override
+    // 准备成功后回填简历路径和面试方向，再按预期旧状态更新 READY；这与题库提交属于不同方法调用。
     public void markReady(String sessionId, Long userId, String resumeFileUrl, String interviewType) {
         InterviewSession session = requireResumable(sessionId, userId);
         sessionStore.updateMetadata(sessionId, resumeFileUrl, interviewType);
@@ -88,6 +91,7 @@ public class InterviewSessionServiceImpl implements InterviewSessionService {
     }
 
     @Override
+    // 首次进入可答题阶段才从 READY 转为 IN_PROGRESS；重复读取当前题时不会反复修改已经进行中的状态。
     public void markInProgressIfReady(String sessionId, Long userId) {
         InterviewSession session = requireOwnedSession(sessionId, userId);
         if (!InterviewSessionStatus.READY.name().equals(session.getStatus())) {
@@ -105,6 +109,7 @@ public class InterviewSessionServiceImpl implements InterviewSessionService {
     }
 
     @Override
+    // 结束状态更新采用会话 version 条件提交；已 FINISHED 时直接返回，报告保存由上层收口服务负责。
     public void finishSession(String sessionId, Long userId) {
         InterviewSession session = requireOwnedSession(sessionId, userId);
         if (InterviewSessionStatus.FINISHED.name().equals(session.getStatus())) {
@@ -121,11 +126,13 @@ public class InterviewSessionServiceImpl implements InterviewSessionService {
     }
 
     @Override
+    // 【关键节点：旧会话退场】查询本用户未删除且仍活动的会话，批量标为 ABANDONED 并记录结束时间；不删除历史记录。
     public void abandonActiveSessions(Long userId) {
         List<InterviewSession> sessions = sessionStore.listActiveByUser(userId);
         sessionStore.abandonSessions(sessions);
     }
 
+    // 先验证归属，再解析生命周期枚举；未知状态或非活动状态拒绝进入准备操作。
     private InterviewSession requireResumable(String sessionId, Long userId) {
         InterviewSession session = requireOwnedSession(sessionId, userId);
         InterviewSessionStatus status;

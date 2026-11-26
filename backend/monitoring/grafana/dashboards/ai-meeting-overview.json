@@ -1,0 +1,461 @@
+{
+  "uid": "ai-meeting-overview",
+  "title": "AI 面试 · 模型调用与答题链路",
+  "tags": ["ai-meeting", "interview", "resilience4j"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" },
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "模型调用速率",
+      "description": "所有阶段合计的每秒调用次数（含重试）。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ai_call_total[$__rate_interval]))",
+          "legendFormat": "req/s"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "调用成功率",
+      "description": "result=success 占全部调用的比例。分母用 clamp_min 防止无流量时除零。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ai_call_total{result=\"success\"}[$__rate_interval])) / clamp_min(sum(rate(ai_call_total[$__rate_interval])), 1e-9)",
+          "legendFormat": "success"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.95 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "熔断打开的阶段数",
+      "description": "ai_circuit_state 1=半开、2=打开。这个值大于 0 说明正在短路。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ai_circuit_state >= 1)",
+          "legendFormat": "熔断中"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "按阶段调用速率",
+      "description": "出题 / 评分 / 追问三条链路各自的调用量，堆叠显示总量。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (rate(ai_call_total[$__rate_interval]))",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 25,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "模型调用延迟分位（全阶段）",
+      "description": "依赖 percentiles-histogram 生成的 _bucket。若曲线为空，检查 management.metrics.distribution.percentiles-histogram 配置。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_call_latency_ms_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_call_latency_ms_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_call_latency_ms_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 15 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "P95 延迟按阶段",
+      "description": "定位是出题慢还是评分慢。出题的超时预算是 60s，评分与追问各 20s。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(ai_call_latency_ms_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "熔断状态",
+      "description": "每个阶段独立的熔断器。0=CLOSED 正常放行，1=HALF_OPEN 探测中，2=OPEN 直接拒绝。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 0, "y": 13, "w": 6, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ai_circuit_state",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "vertical"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "CLOSED", "color": "green", "index": 0 },
+                "1": { "text": "HALF_OPEN", "color": "orange", "index": 1 },
+                "2": { "text": "OPEN", "color": "red", "index": 2 }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "并发隔离拒绝（Bulkhead）",
+      "description": "maxWaitDuration=0，满额直接拒绝。这个值持续抬升说明并发配额不够，不是上游故障。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 6, "y": 13, "w": 9, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (rate(ai_bulkhead_rejected_total[$__rate_interval]))",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "线程池占用（executor）",
+      "description": "pool=interview-ai-io 是模型调用线程池。queued 持续上涨说明模型变慢，正在堆积。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 15, "y": 13, "w": 9, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "executor_active_threads{name=\"ai_meeting_thread_pool\"}",
+          "legendFormat": "{{pool}} active"
+        },
+        {
+          "refId": "B",
+          "expr": "executor_queued_tasks{name=\"ai_meeting_thread_pool\"}",
+          "legendFormat": "{{pool}} queued"
+        },
+        {
+          "refId": "C",
+          "expr": "executor_pool_max_threads{name=\"ai_meeting_thread_pool\"}",
+          "legendFormat": "{{pool}} max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "答题流水线失败原因",
+      "description": "reason 覆盖评价失败、评分缺失、执行权丢失、版本冲突等，用来区分“模型问题”和“并发问题”。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 0, "y": 21, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (rate(answer_pipeline_fail_total[$__rate_interval]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "提交被拒原因",
+      "description": "迟到结果被丢弃的分布：租约过期、尝试被接管、快照损坏等。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 8, "y": 21, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (rate(answer_commit_rejected_total[$__rate_interval]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "幂等回放与锁竞争",
+      "description": "回放命中说明客户端在重试；锁竞争与旧题拒绝同时抬升，说明前端并发提交或游标不同步。",
+      "datasource": { "type": "prometheus", "uid": "ai-meeting-prometheus" },
+      "gridPos": { "x": 16, "y": 21, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(idempotency_replay_hit_total[$__rate_interval]))",
+          "legendFormat": "幂等回放命中"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(session_lock_contention_total[$__rate_interval]))",
+          "legendFormat": "会话锁竞争"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(stale_question_reject_total[$__rate_interval]))",
+          "legendFormat": "旧题拒绝"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    }
+  ]
+}
